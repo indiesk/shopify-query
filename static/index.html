@@ -142,22 +142,44 @@
     flex: 1; overflow: auto; min-height: 0;
     border-top: 1px solid var(--border);
   }
-  #results table { border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; min-width: 100%; }
+  #results table {
+    border-collapse: separate; border-spacing: 0;
+    font-family: var(--mono); font-size: 12.5px; min-width: 100%;
+  }
+  /* opaque per-row background so the sticky index column hides content
+     scrolling beneath it; zebra + hover set the variable */
+  #results tbody tr:nth-child(odd)  { --row-bg: #10141b; }
+  #results tbody tr:nth-child(even) { --row-bg: #161c26; }
+  #results tbody tr:hover           { --row-bg: #1e2a3a; }
   #results th, #results td {
-    padding: 5px 12px; border-bottom: 1px solid var(--border);
+    padding: 6px 14px;
+    border-right: 1px solid var(--border);
     text-align: left; white-space: nowrap; max-width: 420px;
     overflow: hidden; text-overflow: ellipsis;
   }
+  #results th:last-child, #results td:last-child { border-right: none; }
+  #results td { background: var(--row-bg); }
   #results th {
-    position: sticky; top: 0; z-index: 1;
+    position: sticky; top: 0; z-index: 2;
     background: var(--panel-2); color: var(--accent);
-    font-weight: 600; border-bottom: 1px solid var(--accent-dim);
+    font-weight: 600;
+    border-bottom: 2px solid var(--accent-dim);
   }
   #results th .th-type { display: block; color: var(--muted); font-weight: 400; font-size: 10px; }
-  #results td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #results th.num, #results td.num { text-align: right; font-variant-numeric: tabular-nums; }
   #results td.null { color: var(--muted); font-style: italic; }
-  #results tr:hover td { background: rgba(77,159,255,.05); }
-  #results .idx { color: var(--muted); text-align: right; padding-right: 6px; }
+  #results td.bool-t { color: var(--green); }
+  #results td.bool-f { color: var(--muted); }
+  /* frozen row-number column */
+  #results th:first-child, #results td:first-child {
+    position: sticky; left: 0;
+    border-right: 1px solid var(--accent-dim);
+  }
+  #results th:first-child { z-index: 3; }
+  #results td.idx {
+    color: var(--muted); text-align: right;
+    padding: 6px 8px; min-width: 40px;
+  }
   .empty-state { padding: 40px; color: var(--muted); text-align: center; }
 </style>
 </head>
@@ -440,13 +462,15 @@ function renderResult(data) {
   }
   const numeric = data.columns.map((c) =>
     /INT|DECIMAL|DOUBLE|FLOAT|HUGE|BIGINT/i.test(c.type));
+  const boolean = data.columns.map((c) => /BOOLEAN/i.test(c.type));
 
   const table = document.createElement("table");
   const thead = document.createElement("thead");
   const hr = document.createElement("tr");
   hr.appendChild(document.createElement("th"));
-  data.columns.forEach((c) => {
+  data.columns.forEach((c, j) => {
     const th = document.createElement("th");
+    if (numeric[j]) th.className = "num";  // header aligns with its data
     th.textContent = c.name;
     const t = document.createElement("span");
     t.className = "th-type";
@@ -470,6 +494,7 @@ function renderResult(data) {
       else {
         td.textContent = typeof v === "object" ? JSON.stringify(v) : String(v);
         if (numeric[j]) td.className = "num";
+        else if (boolean[j]) td.className = v === true ? "bool-t" : "bool-f";
         td.title = td.textContent;
       }
       tr.appendChild(td);

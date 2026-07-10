@@ -38,7 +38,7 @@ clean, typed tables:
 |---|---|---|
 | `customers` | one row per customer | `customer_id` as BIGINT, booleans for marketing opt-ins, `total_spent` DECIMAL, `zip`/`phone` cleaned |
 | `orders` | one row per order | order-level fields + `line_count` / `total_quantity` aggregates; timestamps parsed (`created_at`, `paid_at`, `fulfilled_at`, `cancelled_at`) |
-| `order_items` | one row per line item | order name / email / `created_at` on every row; `line_total = quantity × price` |
+| `order_items` | one row per line item | order name / email / `created_at` on every row; `line_total = quantity × price − line discount` (gross = `line_total + discount`) |
 | `products` | one row per product | plus `variant_count`, `min_price`, `max_price`, metafields (`flavor`, `dietary_preferences`, …) |
 | `variants` | one row per variant | includes a computed `lineitem_name` that matches `order_items.lineitem_name` |
 | `raw_customers` / `raw_orders` / `raw_products` | CSV rows as-is | all VARCHAR, original Shopify headers — fallback if you need an unmodeled column |
@@ -55,6 +55,14 @@ orders.order_name    = order_items.order_name
 order_items.lineitem_name = variants.lineitem_name   (or sku = sku when present)
 variants.handle      = products.handle
 ```
+
+Note that the products export is a snapshot of the **current** catalog, so line
+items from older orders may reference renamed or discontinued products (and
+`Tip` lines) that won't match `variants`. Joining by `lineitem_name` first and
+falling back to `sku` recovers the most matches — the "Line items joined to
+product catalog" sample query shows the duplicate-safe pattern. Emails are
+lowercased on both sides, so customer joins are case-insensitive; orders placed
+without an email (drafts, POS) simply won't match a customer profile.
 
 ## Example queries
 

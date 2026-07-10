@@ -56,10 +56,21 @@ def sniff_kind(path: Path):
 
 def find_data_files(data_dir: Path):
     found = {}
+    ignored = {}
     for path in sorted(data_dir.glob("*.csv")):
         kind = sniff_kind(path)
-        if kind and kind not in found:
+        if not kind:
+            continue
+        if kind in found:
+            ignored.setdefault(kind, []).append(path.name)
+        else:
             found[kind] = path
+    for kind, extras in ignored.items():
+        print(
+            f"warning: multiple {kind} exports found — using {found[kind].name}, "
+            f"ignoring {', '.join(extras)} (remove stale exports from {data_dir}/)",
+            file=sys.stderr,
+        )
     missing = [k for k in SIGNATURES if k not in found]
     if missing:
         sys.exit(
@@ -125,7 +136,8 @@ SELECT
     TRY_CAST("Lineitem price" AS DECIMAL(12,2))             AS price,
     TRY_CAST("Lineitem compare at price" AS DECIMAL(12,2))  AS compare_at_price,
     TRY_CAST("Lineitem quantity" AS INTEGER)
-      * TRY_CAST("Lineitem price" AS DECIMAL(12,2))         AS line_total,
+      * TRY_CAST("Lineitem price" AS DECIMAL(12,2))
+      - coalesce(TRY_CAST("Lineitem discount" AS DECIMAL(12,2)), 0) AS line_total,
     TRY_CAST("Lineitem discount" AS DECIMAL(12,2))          AS discount,
     nullif("Lineitem sku", '')                              AS sku,
     ("Lineitem requires shipping" = 'true')                 AS requires_shipping,

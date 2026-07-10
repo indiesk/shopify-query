@@ -238,12 +238,22 @@ LEFT JOIN customers c USING (email)
 ORDER BY o.created_at DESC
 LIMIT 50`],
   ["Line items joined to product catalog",
-`SELECT oi.order_name, oi.quantity, oi.lineitem_name,
-       v.sku AS catalog_sku, v.price AS catalog_price,
-       v.cost_per_item, p.product_category
+`-- match by name first, fall back to SKU (historical orders may
+-- reference renamed products; the products export is the current catalog)
+WITH v_by_sku AS (
+  SELECT * FROM variants WHERE sku IS NOT NULL
+  QUALIFY row_number() OVER (PARTITION BY sku ORDER BY handle) = 1
+)
+SELECT oi.order_name, oi.quantity, oi.lineitem_name,
+       coalesce(vn.sku, vs.sku) AS catalog_sku,
+       coalesce(vn.price, vs.price) AS catalog_price,
+       coalesce(vn.cost_per_item, vs.cost_per_item) AS cost_per_item,
+       coalesce(pn.product_category, ps.product_category) AS product_category
 FROM order_items oi
-LEFT JOIN variants v USING (lineitem_name)
-LEFT JOIN products p ON p.handle = v.handle
+LEFT JOIN variants vn ON vn.lineitem_name = oi.lineitem_name
+LEFT JOIN v_by_sku vs ON vn.handle IS NULL AND vs.sku = oi.sku
+LEFT JOIN products pn ON pn.handle = vn.handle
+LEFT JOIN products ps ON ps.handle = vs.handle
 ORDER BY oi.created_at DESC
 LIMIT 50`],
   ["What do my best customers buy?",

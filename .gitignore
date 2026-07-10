@@ -1,0 +1,8 @@
+# Shopify exports contain customer PII (emails, addresses, phone numbers).
+# This repo is public — never commit the data files.
+data/*.csv
+
+__pycache__/
+*.pyc
+.venv/
+venv/

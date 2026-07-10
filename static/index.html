@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shopify SQL</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #151a22;
+    --panel-2: #1a2029;
+    --border: #262d38;
+    --text: #dbe2ec;
+    --muted: #8a94a3;
+    --accent: #4d9fff;
+    --accent-dim: #2b5d9e;
+    --green: #3ecf8e;
+    --red: #ff6b6b;
+    --amber: #f0b429;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: 48px 1fr;
+    grid-template-areas: "header header" "sidebar main";
+    overflow: hidden;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    grid-area: header;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header .logo { font-weight: 700; font-size: 15px; letter-spacing: .2px; }
+  header .logo span { color: var(--accent); }
+  header .tagline { color: var(--muted); font-size: 12.5px; }
+
+  /* ---------- sidebar ---------- */
+  #sidebar {
+    grid-area: sidebar;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 10px 8px 24px;
+  }
+  #sidebar h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--muted); margin: 8px 8px 6px; font-weight: 600;
+  }
+  .tbl { margin: 2px 0; border-radius: 6px; }
+  .tbl-head {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 8px; cursor: pointer; border-radius: 6px;
+    user-select: none;
+  }
+  .tbl-head:hover { background: var(--panel-2); }
+  .tbl-head .caret { color: var(--muted); font-size: 10px; width: 10px; transition: transform .12s; }
+  .tbl.open .tbl-head .caret { transform: rotate(90deg); }
+  .tbl-head .tname { font-family: var(--mono); font-size: 12.5px; color: var(--text); flex: 1; }
+  .tbl-head .rc { color: var(--muted); font-size: 11px; }
+  .tbl-head .preview {
+    visibility: hidden; border: 0; background: none; color: var(--accent);
+    cursor: pointer; font-size: 12px; padding: 0 2px;
+  }
+  .tbl-head:hover .preview { visibility: visible; }
+  .tbl-desc { display: none; color: var(--muted); font-size: 11.5px; padding: 0 8px 4px 24px; }
+  .tbl-cols { display: none; padding: 0 0 4px 16px; }
+  .tbl.open .tbl-cols, .tbl.open .tbl-desc { display: block; }
+  .col-row {
+    display: flex; justify-content: space-between; gap: 8px;
+    padding: 1.5px 8px; cursor: pointer; border-radius: 4px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .col-row:hover { background: var(--panel-2); }
+  .col-row .ctype { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+  .raw-divider { border-top: 1px solid var(--border); margin: 10px 8px; }
+
+  /* ---------- main ---------- */
+  #main {
+    grid-area: main;
+    display: flex; flex-direction: column;
+    min-width: 0; min-height: 0;
+  }
+  #toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  button, select {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 12px; font-size: 13px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--accent-dim); }
+  #run {
+    background: var(--accent); border-color: var(--accent);
+    color: #071018; font-weight: 700; padding: 6px 18px;
+  }
+  #run:hover { filter: brightness(1.1); }
+  #run:disabled { opacity: .55; cursor: wait; }
+  .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  kbd {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0 5px; font-family: var(--mono); font-size: 11px;
+  }
+
+  #editor-wrap { padding: 10px 12px 0; }
+  #sql {
+    width: 100%; height: 170px; min-height: 80px; max-height: 55vh;
+    resize: vertical;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.55;
+    padding: 12px 14px; outline: none;
+    tab-size: 2;
+  }
+  #sql:focus { border-color: var(--accent-dim); }
+
+  #statusbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 14px; font-size: 12.5px; color: var(--muted);
+    min-height: 34px;
+  }
+  #statusbar .ok { color: var(--green); }
+  #statusbar .warn { color: var(--amber); }
+  #statusbar .err { color: var(--red); white-space: pre-wrap; font-family: var(--mono); font-size: 12px; }
+  #download { display: none; margin-left: auto; }
+
+  #results {
+    flex: 1; overflow: auto; min-height: 0;
+    border-top: 1px solid var(--border);
+  }
+  #results table { border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; min-width: 100%; }
+  #results th, #results td {
+    padding: 5px 12px; border-bottom: 1px solid var(--border);
+    text-align: left; white-space: nowrap; max-width: 420px;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  #results th {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--panel-2); color: var(--accent);
+    font-weight: 600; border-bottom: 1px solid var(--accent-dim);
+  }
+  #results th .th-type { display: block; color: var(--muted); font-weight: 400; font-size: 10px; }
+  #results td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #results td.null { color: var(--muted); font-style: italic; }
+  #results tr:hover td { background: rgba(77,159,255,.05); }
+  #results .idx { color: var(--muted); text-align: right; padding-right: 6px; }
+  .empty-state { padding: 40px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Shopify <span>SQL</span></div>
+  <div class="tagline">query your store exports like a warehouse — powered by DuckDB</div>
+</header>
+
+<nav id="sidebar"><h2>Tables</h2></nav>
+
+<div id="main">
+  <div id="toolbar">
+    <button id="run">▶ Run</button>
+    <select id="samples"><option value="">Sample queries…</option></select>
+    <select id="history"><option value="">History…</option></select>
+    <span class="hint">run: <kbd>⌘/Ctrl</kbd>+<kbd>Enter</kbd> · select text to run only the selection</span>
+  </div>
+  <div id="editor-wrap">
+    <textarea id="sql" spellcheck="false" placeholder="SELECT * FROM orders LIMIT 100"></textarea>
+  </div>
+  <div id="statusbar">
+    <span id="status">Ready — pick a sample query or click a table on the left.</span>
+    <button id="download">⬇ Download CSV</button>
+  </div>
+  <div id="results"><div class="empty-state">Results will appear here.</div></div>
+</div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const editor = $("sql");
+let lastResult = null;
+
+/* ---------------- sample queries ---------------- */
+const SAMPLES = [
+  ["Top 20 customers by lifetime spend",
+`SELECT first_name, last_name, email, city, province_code,
+       total_spent, total_orders
+FROM customers
+ORDER BY total_spent DESC
+LIMIT 20`],
+  ["Recent orders with totals",
+`SELECT order_name, created_at, email, financial_status,
+       fulfillment_status, total_quantity AS items, total
+FROM orders
+ORDER BY created_at DESC
+LIMIT 50`],
+  ["Best-selling products (units & revenue)",
+`SELECT lineitem_name, sum(quantity) AS units,
+       sum(line_total) AS revenue,
+       count(DISTINCT order_name) AS orders
+FROM order_items
+GROUP BY 1
+ORDER BY revenue DESC
+LIMIT 25`],
+  ["Revenue by vendor",
+`SELECT vendor, sum(line_total) AS revenue, sum(quantity) AS units
+FROM order_items
+GROUP BY 1
+ORDER BY revenue DESC`],
+  ["Daily sales summary",
+`SELECT created_at::DATE AS day,
+       count(*) AS orders,
+       sum(total) AS revenue,
+       round(avg(total), 2) AS avg_order_value
+FROM orders
+GROUP BY 1
+ORDER BY 1 DESC`],
+  ["Orders joined to customer profiles",
+`SELECT o.order_name, o.created_at::DATE AS day, o.total,
+       c.first_name, c.last_name, c.total_spent AS lifetime_spend,
+       c.total_orders AS lifetime_orders, c.tags
+FROM orders o
+LEFT JOIN customers c USING (email)
+ORDER BY o.created_at DESC
+LIMIT 50`],
+  ["Line items joined to product catalog",
+`SELECT oi.order_name, oi.quantity, oi.lineitem_name,
+       v.sku AS catalog_sku, v.price AS catalog_price,
+       v.cost_per_item, p.product_category
+FROM order_items oi
+LEFT JOIN variants v USING (lineitem_name)
+LEFT JOIN products p ON p.handle = v.handle
+ORDER BY oi.created_at DESC
+LIMIT 50`],
+  ["What do my best customers buy?",
+`SELECT c.email, c.total_spent, oi.lineitem_name,
+       sum(oi.quantity) AS units
+FROM customers c
+JOIN order_items oi USING (email)
+WHERE c.total_spent > 1000
+GROUP BY 1, 2, 3
+ORDER BY c.total_spent DESC, units DESC`],
+  ["Customers by tag (e.g. active_subscriber)",
+`SELECT first_name, last_name, email, total_spent, total_orders
+FROM customers
+WHERE tags ILIKE '%active_subscriber%'
+ORDER BY total_spent DESC
+LIMIT 50`],
+  ["Catalog products never ordered (this export)",
+`SELECT p.title, p.status, p.vendor, p.min_price, p.max_price
+FROM products p
+WHERE p.status = 'active'
+  AND NOT EXISTS (
+    SELECT 1 FROM order_items oi
+    JOIN variants v USING (lineitem_name)
+    WHERE v.handle = p.handle)
+ORDER BY p.title`],
+];
+
+for (const [label, sql] of SAMPLES) {
+  const opt = document.createElement("option");
+  opt.value = sql; opt.textContent = label;
+  $("samples").appendChild(opt);
+}
+$("samples").addEventListener("change", (e) => {
+  if (e.target.value) { editor.value = e.target.value; editor.focus(); }
+  e.target.selectedIndex = 0;
+});
+
+/* ---------------- history (localStorage) ---------------- */
+const HKEY = "shopify-sql-history";
+function loadHistory() {
+  let items = [];
+  try { items = JSON.parse(localStorage.getItem(HKEY) || "[]"); } catch {}
+  const sel = $("history");
+  sel.length = 1;
+  for (const sql of items) {
+    const opt = document.createElement("option");
+    opt.value = sql;
+    opt.textContent = sql.replace(/\s+/g, " ").slice(0, 80);
+    sel.appendChild(opt);
+  }
+}
+function pushHistory(sql) {
+  let items = [];
+  try { items = JSON.parse(localStorage.getItem(HKEY) || "[]"); } catch {}
+  items = [sql, ...items.filter((s) => s !== sql)].slice(0, 30);
+  localStorage.setItem(HKEY, JSON.stringify(items));
+  loadHistory();
+}
+$("history").addEventListener("change", (e) => {
+  if (e.target.value) { editor.value = e.target.value; editor.focus(); }
+  e.target.selectedIndex = 0;
+});
+loadHistory();
+
+/* ---------------- schema sidebar ---------------- */
+async function loadSchema() {
+  const res = await fetch("/api/schema");
+  const schema = await res.json();
+  const nav = $("sidebar");
+  let rawDividerAdded = false;
+  for (const t of schema.tables) {
+    if (t.name.startsWith("raw_") && !rawDividerAdded) {
+      const hr = document.createElement("div");
+      hr.className = "raw-divider";
+      nav.appendChild(hr);
+      const h = document.createElement("h2");
+      h.textContent = "Raw CSV tables";
+      nav.appendChild(h);
+      rawDividerAdded = true;
+    }
+    const box = document.createElement("div");
+    box.className = "tbl";
+    const head = document.createElement("div");
+    head.className = "tbl-head";
+    head.innerHTML =
+      `<span class="caret">▶</span><span class="tname"></span>` +
+      `<span class="rc"></span><button class="preview" title="Preview 100 rows">⏵ 100</button>`;
+    head.querySelector(".tname").textContent = t.name;
+    head.querySelector(".rc").textContent = t.row_count.toLocaleString();
+    head.addEventListener("click", () => box.classList.toggle("open"));
+    head.querySelector(".preview").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const q = t.name.startsWith("raw_")
+        ? `SELECT * FROM ${t.name} LIMIT 100`
+        : `SELECT *\nFROM ${t.name}\nLIMIT 100`;
+      editor.value = q;
+      runQuery(q);
+    });
+    box.appendChild(head);
+
+    const desc = document.createElement("div");
+    desc.className = "tbl-desc";
+    desc.textContent = t.description;
+    box.appendChild(desc);
+
+    const cols = document.createElement("div");
+    cols.className = "tbl-cols";
+    for (const c of t.columns) {
+      const row = document.createElement("div");
+      row.className = "col-row";
+      row.title = "click to insert into query";
+      const name = document.createElement("span");
+      name.textContent = c.name;
+      const type = document.createElement("span");
+      type.className = "ctype";
+      type.textContent = c.type.replace("VARCHAR", "STR").replace("TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ");
+      row.append(name, type);
+      row.addEventListener("click", () => insertAtCursor(quoteIdent(c.name)));
+      cols.appendChild(row);
+    }
+    box.appendChild(cols);
+    nav.appendChild(box);
+  }
+}
+function quoteIdent(name) {
+  return /^[a-z_][a-z0-9_]*$/.test(name) ? name : `"${name}"`;
+}
+function insertAtCursor(text) {
+  const s = editor.selectionStart, e = editor.selectionEnd;
+  editor.setRangeText(text, s, e, "end");
+  editor.focus();
+}
+
+/* ---------------- running queries ---------------- */
+async function runQuery(sqlOverride) {
+  const sel = editor.value.substring(editor.selectionStart, editor.selectionEnd).trim();
+  const sql = (sqlOverride || sel || editor.value).trim();
+  if (!sql) return;
+  const status = $("status");
+  $("run").disabled = true;
+  status.className = "";
+  status.textContent = "Running…";
+  try {
+    const res = await fetch("/api/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      status.innerHTML = "";
+      const err = document.createElement("span");
+      err.className = "err";
+      err.textContent = data.error || "query failed";
+      status.appendChild(err);
+      $("download").style.display = "none";
+      lastResult = null;
+      return;
+    }
+    lastResult = data;
+    pushHistory(sql);
+    renderResult(data);
+  } catch (e) {
+    status.innerHTML = `<span class="err">server unreachable — is app.py still running?</span>`;
+  } finally {
+    $("run").disabled = false;
+  }
+}
+
+function renderResult(data) {
+  const status = $("status");
+  const trunc = data.truncated
+    ? ` <span class="warn">(showing first ${data.row_count.toLocaleString()} rows — add a LIMIT or aggregate)</span>`
+    : "";
+  status.innerHTML =
+    `<span class="ok">✓</span> ${data.row_count.toLocaleString()} row${data.row_count === 1 ? "" : "s"}` +
+    ` · ${data.elapsed_ms} ms${trunc}`;
+  $("download").style.display = data.rows.length ? "inline-block" : "none";
+
+  const results = $("results");
+  if (!data.columns.length) {
+    results.innerHTML = `<div class="empty-state">Statement executed (no result set).</div>`;
+    return;
+  }
+  const numeric = data.columns.map((c) =>
+    /INT|DECIMAL|DOUBLE|FLOAT|HUGE|BIGINT/i.test(c.type));
+
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  hr.appendChild(document.createElement("th"));
+  data.columns.forEach((c) => {
+    const th = document.createElement("th");
+    th.textContent = c.name;
+    const t = document.createElement("span");
+    t.className = "th-type";
+    t.textContent = c.type;
+    th.appendChild(t);
+    hr.appendChild(th);
+  });
+  thead.appendChild(hr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  data.rows.forEach((row, i) => {
+    const tr = document.createElement("tr");
+    const idx = document.createElement("td");
+    idx.className = "idx";
+    idx.textContent = i + 1;
+    tr.appendChild(idx);
+    row.forEach((v, j) => {
+      const td = document.createElement("td");
+      if (v === null) { td.className = "null"; td.textContent = "null"; }
+      else {
+        td.textContent = typeof v === "object" ? JSON.stringify(v) : String(v);
+        if (numeric[j]) td.className = "num";
+        td.title = td.textContent;
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  results.innerHTML = "";
+  results.appendChild(table);
+}
+
+/* ---------------- CSV download ---------------- */
+$("download").addEventListener("click", () => {
+  if (!lastResult) return;
+  const esc = (v) => {
+    if (v === null || v === undefined) return "";
+    const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [lastResult.columns.map((c) => esc(c.name)).join(",")];
+  for (const row of lastResult.rows) lines.push(row.map(esc).join(","));
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "query_result.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+/* ---------------- wiring ---------------- */
+$("run").addEventListener("click", () => runQuery());
+editor.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault();
+    runQuery();
+  } else if (e.key === "Tab") {
+    e.preventDefault();
+    insertAtCursor("  ");
+  }
+});
+
+loadSchema();
+</script>
+</body>
+</html>

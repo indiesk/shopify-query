@@ -216,102 +216,28 @@ const $ = (id) => document.getElementById(id);
 const editor = $("sql");
 let lastResult = null;
 
-/* ---------------- sample queries ---------------- */
-const SAMPLES = [
-  ["Top 20 customers by lifetime spend",
-`SELECT first_name, last_name, email, city, province_code,
-       total_spent, total_orders
-FROM customers
-ORDER BY total_spent DESC
-LIMIT 20`],
-  ["Recent orders with totals",
-`SELECT order_name, created_at, email, financial_status,
-       fulfillment_status, total_quantity AS items, total
-FROM orders
-ORDER BY created_at DESC
-LIMIT 50`],
-  ["Best-selling products (units & revenue)",
-`SELECT lineitem_name, sum(quantity) AS units,
-       sum(line_total) AS revenue,
-       count(DISTINCT order_name) AS orders
-FROM order_items
-GROUP BY 1
-ORDER BY revenue DESC
-LIMIT 25`],
-  ["Revenue by vendor",
-`SELECT vendor, sum(line_total) AS revenue, sum(quantity) AS units
-FROM order_items
-GROUP BY 1
-ORDER BY revenue DESC`],
-  ["Daily sales summary",
-`SELECT created_at::DATE AS day,
-       count(*) AS orders,
-       sum(total) AS revenue,
-       round(avg(total), 2) AS avg_order_value
-FROM orders
-GROUP BY 1
-ORDER BY 1 DESC`],
-  ["Orders joined to customer profiles",
-`SELECT o.order_name, o.created_at::DATE AS day, o.total,
-       c.first_name, c.last_name, c.total_spent AS lifetime_spend,
-       c.total_orders AS lifetime_orders, c.tags
-FROM orders o
-LEFT JOIN customers c USING (email)
-ORDER BY o.created_at DESC
-LIMIT 50`],
-  ["Line items joined to product catalog",
-`-- match by name first, fall back to SKU (historical orders may
--- reference renamed products; the products export is the current catalog)
-WITH v_by_sku AS (
-  SELECT * FROM variants WHERE sku IS NOT NULL
-  QUALIFY row_number() OVER (PARTITION BY sku ORDER BY handle) = 1
-)
-SELECT oi.order_name, oi.quantity, oi.lineitem_name,
-       coalesce(vn.sku, vs.sku) AS catalog_sku,
-       coalesce(vn.price, vs.price) AS catalog_price,
-       coalesce(vn.cost_per_item, vs.cost_per_item) AS cost_per_item,
-       coalesce(pn.product_category, ps.product_category) AS product_category
-FROM order_items oi
-LEFT JOIN variants vn ON vn.lineitem_name = oi.lineitem_name
-LEFT JOIN v_by_sku vs ON vn.handle IS NULL AND vs.sku = oi.sku
-LEFT JOIN products pn ON pn.handle = vn.handle
-LEFT JOIN products ps ON ps.handle = vs.handle
-ORDER BY oi.created_at DESC
-LIMIT 50`],
-  ["What do my best customers buy?",
-`SELECT c.email, c.total_spent, oi.lineitem_name,
-       sum(oi.quantity) AS units
-FROM customers c
-JOIN order_items oi USING (email)
-WHERE c.total_spent > 1000
-GROUP BY 1, 2, 3
-ORDER BY c.total_spent DESC, units DESC`],
-  ["Customers by tag (e.g. active_subscriber)",
-`SELECT first_name, last_name, email, total_spent, total_orders
-FROM customers
-WHERE tags ILIKE '%active_subscriber%'
-ORDER BY total_spent DESC
-LIMIT 50`],
-  ["Catalog products never ordered (this export)",
-`SELECT p.title, p.status, p.vendor, p.min_price, p.max_price
-FROM products p
-WHERE p.status = 'active'
-  AND NOT EXISTS (
-    SELECT 1 FROM order_items oi
-    JOIN variants v USING (lineitem_name)
-    WHERE v.handle = p.handle)
-ORDER BY p.title`],
-];
-
-for (const [label, sql] of SAMPLES) {
-  const opt = document.createElement("option");
-  opt.value = sql; opt.textContent = label;
-  $("samples").appendChild(opt);
+/* ---------------- sample queries (fetched from server) ---------------- */
+async function loadSamples() {
+  const res = await fetch("/api/samples");
+  const data = await res.json();
+  const sel = $("samples");
+  for (const sec of data.sections) {
+    const og = document.createElement("optgroup");
+    og.label = sec.section;
+    for (const it of sec.items) {
+      const opt = document.createElement("option");
+      opt.value = it.sql;
+      opt.textContent = it.label;
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
+  }
 }
 $("samples").addEventListener("change", (e) => {
   if (e.target.value) { editor.value = e.target.value; editor.focus(); }
   e.target.selectedIndex = 0;
 });
+loadSamples();
 
 /* ---------------- history (localStorage) ---------------- */
 const HKEY = "shopify-sql-history";
@@ -348,7 +274,7 @@ async function loadSchema() {
   nav.innerHTML = "<h2>Tables</h2>";  // idempotent: called again after DDL
   let rawDividerAdded = false;
   let userDividerAdded = false;
-  const BUILTIN = new Set(["customers","orders","order_items","products","variants",
+  const BUILTIN = new Set(["customers","orders","online_orders","order_items","catalog_items","products","variants",
                            "raw_customers","raw_orders","raw_products"]);
   for (const t of schema.tables) {
     if (t.name.startsWith("raw_") && BUILTIN.has(t.name) && !rawDividerAdded) {

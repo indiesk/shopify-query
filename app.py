@@ -26,6 +26,8 @@ from pathlib import Path
 
 import duckdb
 
+from sample_queries import SECTIONS
+
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 MAX_ROWS = 10_000  # hard cap on rows returned to the browser
@@ -307,14 +309,36 @@ SELECT
     "Variant Barcode"                                       AS barcode
 FROM raw_products
 WHERE "Variant Price" IS NOT NULL;
+
+-- Online sales only: POS storefront and iPhone POS excluded. The analytics
+-- sample queries (see QUERIES.md) all run against this view.
+CREATE VIEW online_orders AS
+SELECT * FROM orders
+WHERE source IS NULL OR source NOT IN ('pos', 'iphone');
+
+-- Line items that correspond to a product still in the current catalog:
+-- matches by SKU when populated, falls back to a title-prefix match.
+-- Excludes legacy/renamed/discontinued products and non-product lines (tips).
+CREATE VIEW catalog_items AS
+SELECT oi.*
+FROM order_items oi
+WHERE EXISTS (
+    SELECT 1 FROM variants v
+    WHERE v.sku = oi.sku
+       OR oi.lineitem_name LIKE v.product_title || '%'
+);
 """
 
 TABLE_INFO = {
     "customers": "One row per customer (cleaned from the customers export).",
     "orders": "One row per order — order-level fields from the orders export "
               "plus line_count / total_quantity aggregates.",
+    "online_orders": "orders minus POS / iPhone POS. The analytics sample "
+                     "queries all use this view (see QUERIES.md).",
     "order_items": "One row per order line item, with order name/email/date on every row. "
                    "Join to variants on lineitem_name or sku.",
+    "catalog_items": "order_items filtered to products still in the current catalog "
+                     "(SKU match, falling back to title-prefix). Excludes legacy items and tips.",
     "products": "One row per product, with variant_count / min_price / max_price aggregates.",
     "variants": "One row per product variant. lineitem_name matches "
                 "order_items.lineitem_name for easy joins.",
@@ -384,6 +408,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, page, "text/html; charset=utf-8")
         elif self.path == "/api/schema":
             self._send(200, self.get_schema())
+        elif self.path == "/api/samples":
+            self._send(200, {"sections": [
+                {"section": name, "items": [{"label": l, "sql": s} for l, s in items]}
+                for name, items in SECTIONS
+            ]})
         else:
             self._send(404, {"error": "not found"})
 

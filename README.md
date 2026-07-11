@@ -39,6 +39,8 @@ clean, typed tables:
 | `customers` | one row per customer | `customer_id` as BIGINT, booleans for marketing opt-ins, `total_spent` DECIMAL, `zip`/`phone` cleaned |
 | `orders` | one row per order | order-level fields + `line_count` / `total_quantity` aggregates; timestamps parsed (`created_at`, `paid_at`, `fulfilled_at`, `cancelled_at`) |
 | `order_items` | one row per line item | order name / email / `created_at` on every row; `line_total = quantity × price − line discount` (gross = `line_total + discount`) |
+| `online_orders` | view: `orders` minus POS/iPhone | what the analytics sample queries run against |
+| `catalog_items` | view: `order_items` in the current catalog | SKU match with title-prefix fallback; excludes legacy items and tips |
 | `products` | one row per product | plus `variant_count`, `min_price`, `max_price`, metafields (`flavor`, `dietary_preferences`, …) |
 | `variants` | one row per variant | includes a computed `lineitem_name` that matches `order_items.lineitem_name` |
 | `raw_customers` / `raw_orders` / `raw_products` | CSV rows as-is | all VARCHAR, original Shopify headers — fallback if you need an unmodeled column |
@@ -96,7 +98,11 @@ LEFT JOIN variants v USING (lineitem_name)
 LEFT JOIN products p ON p.handle = v.handle;
 ```
 
-More samples are built into the UI ("Sample queries…" dropdown).
+The "Sample queries…" dropdown ships a full analytics library — ~39 queries
+across customer composition, AOV/LTV, 80/20 concentration, product
+performance, baskets & discounts, channels, geography, marketing consent,
+segment health, and unit economics. Each one is documented in
+[QUERIES.md](QUERIES.md).
 
 ## UI tips
 

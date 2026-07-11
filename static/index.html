@@ -345,9 +345,13 @@ async function loadSchema() {
   const res = await fetch("/api/schema");
   const schema = await res.json();
   const nav = $("sidebar");
+  nav.innerHTML = "<h2>Tables</h2>";  // idempotent: called again after DDL
   let rawDividerAdded = false;
+  let userDividerAdded = false;
+  const BUILTIN = new Set(["customers","orders","order_items","products","variants",
+                           "raw_customers","raw_orders","raw_products"]);
   for (const t of schema.tables) {
-    if (t.name.startsWith("raw_") && !rawDividerAdded) {
+    if (t.name.startsWith("raw_") && BUILTIN.has(t.name) && !rawDividerAdded) {
       const hr = document.createElement("div");
       hr.className = "raw-divider";
       nav.appendChild(hr);
@@ -355,6 +359,14 @@ async function loadSchema() {
       h.textContent = "Raw CSV tables";
       nav.appendChild(h);
       rawDividerAdded = true;
+    } else if (!BUILTIN.has(t.name) && !userDividerAdded) {
+      const hr = document.createElement("div");
+      hr.className = "raw-divider";
+      nav.appendChild(hr);
+      const h = document.createElement("h2");
+      h.textContent = "Your views & tables";
+      nav.appendChild(h);
+      userDividerAdded = true;
     }
     const box = document.createElement("div");
     box.className = "tbl";
@@ -438,6 +450,8 @@ async function runQuery(sqlOverride) {
     lastResult = data;
     pushHistory(sql);
     renderResult(data);
+    // DDL changes the catalog — refresh the sidebar so new views show up
+    if (/^\s*(create|drop|alter)\b/i.test(sql) || !data.columns.length) loadSchema();
   } catch (e) {
     status.innerHTML = `<span class="err">server unreachable — is app.py still running?</span>`;
   } finally {

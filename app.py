@@ -365,7 +365,6 @@ def jsonable(v):
 
 class Handler(BaseHTTPRequestHandler):
     con = None  # set at startup
-    schema_cache = None
 
     def log_message(self, fmt, *args):  # quieter default logging
         sys.stderr.write("  %s\n" % (fmt % args))
@@ -429,29 +428,34 @@ class Handler(BaseHTTPRequestHandler):
 
     @classmethod
     def get_schema(cls):
-        if cls.schema_cache is None:
-            cur = cls.con.cursor()
-            cols = cur.execute(
-                "SELECT table_name, column_name, data_type "
-                "FROM information_schema.columns ORDER BY table_name, ordinal_position"
-            ).fetchall()
-            by_table = {}
-            for table, column, dtype in cols:
-                by_table.setdefault(table, []).append({"name": column, "type": dtype})
-            tables = []
-            for name in TABLE_ORDER:
-                if name not in by_table:
-                    continue
+        # computed fresh on every call so views/tables created in the UI
+        # show up in the sidebar
+        cur = cls.con.cursor()
+        cols = cur.execute(
+            "SELECT table_name, column_name, data_type "
+            "FROM information_schema.columns ORDER BY table_name, ordinal_position"
+        ).fetchall()
+        by_table = {}
+        for table, column, dtype in cols:
+            by_table.setdefault(table, []).append({"name": column, "type": dtype})
+        user_made = sorted(n for n in by_table if n not in TABLE_INFO)
+        tables = []
+        for name in TABLE_ORDER + user_made:
+            if name not in by_table:
+                continue
+            try:
                 count = cur.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0]
-                tables.append({
-                    "name": name,
-                    "description": TABLE_INFO.get(name, ""),
-                    "row_count": count,
-                    "columns": by_table[name],
-                })
-            cur.close()
-            cls.schema_cache = {"tables": tables}
-        return cls.schema_cache
+            except Exception:  # e.g. a view whose source was dropped
+                count = 0
+            tables.append({
+                "name": name,
+                "description": TABLE_INFO.get(
+                    name, "Created by you in this session — gone when the app restarts."),
+                "row_count": count,
+                "columns": by_table[name],
+            })
+        cur.close()
+        return {"tables": tables}
 
 
 def main():
